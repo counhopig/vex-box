@@ -1,22 +1,24 @@
 /**
- * SystemPromptAssembler — assembles the 6-section system prompt.
+ * SystemPromptAssembler — assembles the 3-section system prompt.
  *
  * Architecture doc (§11):
  *   Section 1: PERSONA (BASE) — always first. The LLM sees identity first,
  *              capabilities second.
  *   Section 2: CUSTOM INSTRUCTIONS — user-authored agent.systemPrompt. Follows
- *              identity; precedes environment/tool rules (ordering decision
- *              recorded in the runtime-config integration plan Part 2).
- *   Section 3: ENVIRONMENT    — working directory, platform, time
- *   Section 4: TOOL RULES     — file ops, bash, browser, memory guides
- *   Section 5: SKILLS         — injected skill content
- *   Section 6: OUTPUT FORMAT  — markdown, concise, code over description
+ *              identity; precedes skills.
+ *   Section 3: SKILLS              — injected skill content
  *
  * Key rule: Persona is Section 1. Always.
  *
  * When persona is set, DEFAULT_IDENTITY is excluded — persona owns identity
  * exclusively. When persona is absent/falsy, DEFAULT_IDENTITY is used.
  * This is the fix for the 2026-07-17 competing-identity incident.
+ *
+ * Previously declared environment/toolRules/outputFormat sections were
+ * removed in plan 009: no caller supplied their values (Agent.processMessage
+ * only feeds the 3 live fields), so the assembler could never emit them —
+ * the labels and interface fields were dead. Re-add requires a separate
+ * design plan that defines the content source for each section.
  */
 
 // ---------------------------------------------------------------------------
@@ -34,10 +36,7 @@ export const DEFAULT_IDENTITY =
 const SECTION_LABELS: Record<string, string> = {
   persona: "【角色身份】",
   customInstructions: "【自定义指令】",
-  environment: "【环境信息】",
-  toolRules: "【工具使用规则】",
   skills: "【技能模板】",
-  outputFormat: "【输出格式】",
 };
 
 // ---------------------------------------------------------------------------
@@ -47,10 +46,7 @@ const SECTION_LABELS: Record<string, string> = {
 export interface SystemPromptSections {
   persona?: string;
   customInstructions?: string;
-  environment?: string;
-  toolRules?: string;
   skills?: string;
-  outputFormat?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,10 +56,10 @@ export interface SystemPromptSections {
 /**
  * Assemble the system prompt from sections.
  *
- * Section order is always: persona → customInstructions → environment →
- * toolRules → skills → outputFormat. Any section can be omitted — only
- * provided sections are included (except for Section 1: if persona is
- * absent/falsy, DEFAULT_IDENTITY is used so there is always a base identity).
+ * Section order is always: persona → customInstructions → skills. Any section
+ * can be omitted — only provided sections are included (except for Section 1:
+ * if persona is absent/falsy, DEFAULT_IDENTITY is used so there is always a
+ * base identity).
  */
 export function assembleSystemPrompt(sections: SystemPromptSections): string {
   const parts: string[] = [];
@@ -80,24 +76,9 @@ export function assembleSystemPrompt(sections: SystemPromptSections): string {
     parts.push(`${SECTION_LABELS.customInstructions}\n${sections.customInstructions}`);
   }
 
-  // Section 3: environment
-  if (sections.environment) {
-    parts.push(`${SECTION_LABELS.environment}\n${sections.environment}`);
-  }
-
-  // Section 4: tool rules
-  if (sections.toolRules) {
-    parts.push(`${SECTION_LABELS.toolRules}\n${sections.toolRules}`);
-  }
-
-  // Section 5: skills
+  // Section 3: skills
   if (sections.skills) {
     parts.push(`${SECTION_LABELS.skills}\n${sections.skills}`);
-  }
-
-  // Section 6: output format
-  if (sections.outputFormat) {
-    parts.push(`${SECTION_LABELS.outputFormat}\n${sections.outputFormat}`);
   }
 
   return parts.join("\n\n---\n\n");
