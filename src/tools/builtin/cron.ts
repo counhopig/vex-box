@@ -36,13 +36,15 @@ function formatSchedule(schedule: CronSchedule): string {
 export interface CronToolsOptions {
   /** Per-runtime CronService instance. When undefined, tools return disabled. */
   service?: CronService;
+  /** Owner key used to isolate this agent's cron jobs. */
+  owner?: string;
 }
 
 // ---------------------------------------------------------------------------
 // cron_list
 // ---------------------------------------------------------------------------
 
-function createCronListTool(service?: CronService): Tool {
+function createCronListTool(service?: CronService, owner?: string): Tool {
   const parameters = Type.Object({
     includeDisabled: Type.Optional(
       Type.Boolean({ description: "Include disabled jobs" }),
@@ -63,9 +65,10 @@ function createCronListTool(service?: CronService): Tool {
       }
       const params = args as Static<typeof parameters>;
       const includeDisabled = params.includeDisabled ?? false;
-      const jobs = includeDisabled
+      const jobs = (includeDisabled
         ? service.list({ includeDisabled: true })
-        : service.list();
+        : service.list()
+      ).filter((job) => job.ownerId === owner);
       if (jobs.length === 0) {
         return jsonResult({ status: "success", count: 0, jobs: [] });
       }
@@ -88,7 +91,7 @@ function createCronListTool(service?: CronService): Tool {
 // cron_add
 // ---------------------------------------------------------------------------
 
-function createCronAddTool(service?: CronService): Tool {
+function createCronAddTool(service?: CronService, owner?: string): Tool {
   const parameters = Type.Object({
     name: Type.String({ description: "Job name" }),
     scheduleType: Type.Union(
@@ -242,6 +245,7 @@ function createCronAddTool(service?: CronService): Tool {
           name: params.name,
           schedule,
           payload,
+          ownerId: owner,
         } as CronJobCreate);
         return jsonResult({
           status: "success",
@@ -262,7 +266,7 @@ function createCronAddTool(service?: CronService): Tool {
 // cron_remove
 // ---------------------------------------------------------------------------
 
-function createCronRemoveTool(service?: CronService): Tool {
+function createCronRemoveTool(service?: CronService, owner?: string): Tool {
   const parameters = Type.Object({
     jobId: Type.String({ description: "Job ID" }),
   });
@@ -285,6 +289,9 @@ function createCronRemoveTool(service?: CronService): Tool {
       if (!job) {
         return errorResult(`Job not found: ${jobId}`);
       }
+      if (job.ownerId !== owner) {
+        return errorResult(`Access denied: job ${jobId} is not owned by this user`);
+      }
       const removed = service.remove(jobId);
       if (!removed) {
         return errorResult("Removal failed");
@@ -303,7 +310,7 @@ function createCronRemoveTool(service?: CronService): Tool {
 // cron_run
 // ---------------------------------------------------------------------------
 
-function createCronRunTool(service?: CronService): Tool {
+function createCronRunTool(service?: CronService, owner?: string): Tool {
   const parameters = Type.Object({
     jobId: Type.String({ description: "Job ID" }),
   });
@@ -322,6 +329,13 @@ function createCronRunTool(service?: CronService): Tool {
       }
       const params = args as Static<typeof parameters>;
       const jobId = params.jobId;
+      const job = service.get(jobId);
+      if (!job) {
+        return errorResult(`Job not found: ${jobId}`);
+      }
+      if (job.ownerId !== owner) {
+        return errorResult(`Access denied: job ${jobId} is not owned by this user`);
+      }
       const result = await service.run(jobId);
       if (result.status === "ok") {
         return jsonResult({ status: "success", message: "Job executed" });
@@ -340,7 +354,7 @@ function createCronRunTool(service?: CronService): Tool {
 // cron_update
 // ---------------------------------------------------------------------------
 
-function createCronUpdateTool(service?: CronService): Tool {
+function createCronUpdateTool(service?: CronService, owner?: string): Tool {
   const parameters = Type.Object({
     jobId: Type.String({ description: "Job ID" }),
     name: Type.Optional(Type.String({ description: "New name" })),
@@ -369,6 +383,15 @@ function createCronUpdateTool(service?: CronService): Tool {
       if (Object.keys(updates).length === 0) {
         return errorResult("No fields to update");
       }
+      const existingJob = service.get(params.jobId);
+      if (!existingJob) {
+        return errorResult(`Job not found: ${params.jobId}`);
+      }
+      if (existingJob.ownerId !== owner) {
+        return errorResult(
+          `Access denied: job ${params.jobId} is not owned by this user`,
+        );
+      }
       const job = service.update(params.jobId, updates);
       if (!job) {
         return errorResult(`Job not found: ${params.jobId}`);
@@ -389,11 +412,12 @@ function createCronUpdateTool(service?: CronService): Tool {
 
 export function createCronTools(options?: CronToolsOptions): Tool[] {
   const service = options?.service;
+  const owner = options?.owner;
   return [
-    createCronListTool(service),
-    createCronAddTool(service),
-    createCronRemoveTool(service),
-    createCronRunTool(service),
-    createCronUpdateTool(service),
+    createCronListTool(service, owner),
+    createCronAddTool(service, owner),
+    createCronRemoveTool(service, owner),
+    createCronRunTool(service, owner),
+    createCronUpdateTool(service, owner),
   ];
 }

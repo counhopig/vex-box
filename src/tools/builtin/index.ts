@@ -118,7 +118,7 @@ export function createBuiltinTools(
   // Cron tools (enabled by default; without a CronService instance the tools
   // degrade to "disabled" — a tested behavior, not an error).
   if (options?.enableCron !== false) {
-    tools.push(...createCronTools({ service: options?.cronService }));
+    tools.push(...createCronTools({ service: options?.cronService, owner }));
   }
 
   return tools;
