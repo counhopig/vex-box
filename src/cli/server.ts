@@ -30,7 +30,7 @@ import { Persona } from "../agent/persona/Persona.js";
 import { PersonaStorage } from "../agent/persona/PersonaStorage.js";
 import { createPersonaConfig } from "../agent/persona/PersonaConfig.js";
 import { createDefaultPiSession } from "../agent/createDefaultPiSession.js";
-import { createBuiltinTools } from "../tools/builtin/index.js";
+import { createBuiltinTools, disposeOwnerResources } from "../tools/builtin/index.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { createMemoryManager } from "../memory/index.js";
 import { loadAllSkills } from "../skills/SkillLoader.js";
@@ -362,7 +362,10 @@ export function buildAgentFactory(modelResolver: ModelResolver, system: BuildAge
       runtime,
       skillsPrompt,
       pluginService,
-      features: skillLearner ? [skillLearner] : [],
+      features: [
+        ...(skillLearner ? [skillLearner] : []),
+        { shutdown: () => disposeOwnerResources(`${userId}:${channelId}`) },
+      ],
     });
   };
 }
