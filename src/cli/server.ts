@@ -428,6 +428,7 @@ export async function startWebServer(config: SystemConfig): Promise<WebServer> {
     dbPath,
     enabled: webAuth.enabled ?? true,
     secureCookies: typeof webAuth.secureCookies === "boolean" ? webAuth.secureCookies : undefined,
+    onUserConfigSaved: (userId) => configStore.invalidateUserConfig(userId),
   });
   const sessionStore = new FileSessionStore(join(homedir(), ".vex", "sessions"));
   const logStreamer = new LogStreamer();

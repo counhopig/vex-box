@@ -284,6 +284,24 @@ describe("ConfigStore", () => {
     expect(config.agent.temperature).toBe(0.9);
   });
 
+  it("invalidateUserConfig delegates to the injected loader's invalidate", async () => {
+    const invalidate = vi.fn();
+    const loader = { load: () => ({}), invalidate };
+    const store = new ConfigStore({ yamlLoader: new YamlLoader("/nonexistent"), userConfigLoader: loader });
+
+    expect(() => store.invalidateUserConfig("alice")).not.toThrow();
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith("alice");
+  });
+
+  it("invalidateUserConfig is a no-op when the loader has no invalidate", async () => {
+    const loader = { load: () => ({}) };
+    const store = new ConfigStore({ yamlLoader: new YamlLoader("/nonexistent"), userConfigLoader: loader });
+
+    expect(() => store.invalidateUserConfig("alice")).not.toThrow();
+  });
+
   // -- YAML mtime cache (plan 008) ----------------------------------------
 
   it("caches YAML reads across multiple resolve() calls (yaml.parse called once)", async () => {
