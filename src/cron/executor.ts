@@ -11,7 +11,7 @@
 
 import { getChildLogger } from "../utils/logger.js";
 import type { CronExecutionResult, CronJob, PayloadAgentTurn } from "./types.js";
-import type { InboundMessageContext } from "../channels/ChannelAdapter.js";
+import type { InboundMessageContext, ChannelId } from "../channels/ChannelAdapter.js";
 
 const logger = getChildLogger("cron-executor");
 
@@ -75,16 +75,25 @@ async function executeAgentTurn(
   payload: PayloadAgentTurn,
   dispatch: CronDispatcher["dispatch"],
 ): Promise<CronExecutionResult> {
-  // Build the synthetic InboundMessageContext that routes to the right
-  // Agent via the Dispatcher. ownerId is the per-tenant key; if absent,
-  // Dispatcher.resolveUserId() falls back to senderId ("cron-system").
-  // We use "webchat" as the channel because cron is an internal trigger
-  // — there is no real "cron" channel in the type, and webchat's
-  // ChannelRegistry path is the closest match for non-channel triggers.
+  // Route the reply through payload.deliver/channel/to when set so the scheduled
+  // agent actually reaches the user; otherwise fall back to webchat's cron-chat
+  // path (no real "cron" channel exists, ownerId stays the tenant stamp).
+  const VALID_DELIVER_CHANNELS = ["weixin", "webchat"] as const;
+  const deliver = payload.deliver === true;
+  const channel =
+    deliver &&
+    typeof payload.channel === "string" &&
+    (VALID_DELIVER_CHANNELS as readonly string[]).includes(payload.channel)
+      ? (payload.channel as ChannelId)
+      : undefined;
+  const chatId = channel && typeof payload.to === "string" && payload.to.length > 0
+    ? payload.to
+    : `cron:${job.id}`;
+
   const ctx: InboundMessageContext = {
-    channelId: "webchat",
+    channelId: channel ?? "webchat",
     messageId: `cron-${job.id}-${Date.now()}`,
-    chatId: `cron:${job.id}`,
+    chatId,
     chatType: "direct",
     senderId: "cron-system",
     content: payload.message,
