@@ -128,7 +128,7 @@ Vex (`vex-bot`) — lightweight AI chatbot framework for the Chinese LLM/communi
 
 - `ModelResolver`'s fallback path silently guesses a wrong API protocol for a case-mismatched model id, instead of failing clearly or matching case-insensitively.
 - `tool_start`/`tool_end` hooks are declared in `hooks/types.ts` but nothing emits them — a plugin registering these hooks will silently never fire. Needs `PiAgent.setBeforeToolCall`/`setAfterToolCall` wired to pi-coding-agent's own hooks.
-- **Accepted-risk npm advisories (2 high, 0 critical)**: `npm audit --omit=dev` reports `@mariozechner/pi-coding-agent` (`>=0.27.5` — every released version incl. 0.73.1; local priv-esc via temp install paths, auth.json write race, HTML-export XSS) and `extract-zip` (`*` — symlink traversal). The only "fix" is `npm audit fix --force` → downgrade `pi-coding-agent` to 0.49.3, which would break the rewrite. Re-check when a future `pi-coding-agent` release drops `extract-zip`. See plan 006.
+- **Accepted-risk npm advisories (2 high, 0 critical)**: `npm audit --omit=dev` reports `@mariozechner/pi-coding-agent` (local priv-esc via temp install paths, auth.json write race, HTML-export XSS) and `extract-zip` (symlink traversal). No fixed version exists for either as of 2026-08: `extract-zip` latest is 2.0.1 (2020, still vulnerable), and the auth.json race (GHSA-r95r, `>=0.28.0`) + HTML XSS (GHSA-7v5m, `>=0.27.5`) ranges cover every published `pi-coding-agent` version incl. 0.73.1. `npm audit fix --force` suggests downgrading to 0.49.3, but that is a red herring — 0.49.3 still matches r95r/7v5m, so the downgrade would swap 2 highs for 2 different highs *and* break the rewrite. Re-check when `pi-coding-agent` publishes >0.73.1. See plan 006.
 
 ## COMMANDS
 

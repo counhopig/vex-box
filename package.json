@@ -20,6 +20,7 @@
     "start:gateway": "tsx src/cli/index.ts start",
     "cli": "node dist/cli/index.js",
     "lint": "tsc --noEmit",
+    "audit": "npx audit-ci@^7 --config ./audit-ci.jsonc",
     "test": "vitest run",
     "test:watch": "vitest",
     "pack:dry-run": "npm pack --dry-run --json",

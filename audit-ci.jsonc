@@ -1,0 +1,21 @@
+{
+  // Vex embeds pi-coding-agent via its SDK entry point, never its CLI/interactive
+  // modes. The two HIGH advisories below trace to code paths that are unreachable
+  // in Vex (dead code). skip-dev is deliberate: Vex is a library whose `files`
+  // manifest ships only dist/** + skills/**, so devDependencies never reach users.
+  // Full rationale and re-audit triggers: SECURITY.md.
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "high": true,
+  "skip-dev": true,
+  "allowlist": [
+    // HIGH — extract-zip symlink traversal. Unreachable: Vex passes tools:[] so the
+    // built-in find/grep tools (and their ensureTool→extractZip path) never run.
+    "GHSA-jmr9-qjv8-65gv",
+    // HIGH — pi-coding-agent predictable temp extension-install path (local priv-esc).
+    // Unreachable: Vex uses its own plugin system, never pi's extension installer.
+    "GHSA-jfgx-wxx8-mp94"
+    // NOTE: the other two pi-coding-agent advisories (GHSA-r95r-rj6r-c39x auth.json
+    // race, GHSA-7v5m-pr3q-6453 HTML XSS) are LOW severity and also unreachable, so
+    // they sit below the "high" threshold and need no allowlist entry — see SECURITY.md.
+  ]
+}
