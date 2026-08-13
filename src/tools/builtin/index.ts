@@ -58,6 +58,10 @@ export interface BuiltinToolsOptions {
   cronService?: CronService;
   /** Owner key isolating the background-process registry per user. */
   owner?: string;
+  /** Owner key for cron jobs. Must be the plain `userId`, NOT the composite
+   *  `${userId}:${channelId}` resource key — cron dispatch uses this as the
+   *  Dispatcher's `webUserId`, which must resolve to a real user's agent. */
+  cronOwner?: string;
 }
 
 /** Create all built-in tools. The always-available tools are included
@@ -118,7 +122,7 @@ export function createBuiltinTools(
   // Cron tools (enabled by default; without a CronService instance the tools
   // degrade to "disabled" — a tested behavior, not an error).
   if (options?.enableCron !== false) {
-    tools.push(...createCronTools({ service: options?.cronService, owner }));
+    tools.push(...createCronTools({ service: options?.cronService, owner: options?.cronOwner ?? owner }));
   }
 
   return tools;

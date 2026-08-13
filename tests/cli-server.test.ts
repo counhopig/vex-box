@@ -174,6 +174,7 @@ describe("buildAgentFactory tool wiring", () => {
     expect(createBuiltinToolsMock).toHaveBeenCalledTimes(1);
     const opts = createBuiltinToolsMock.mock.calls[0]![0] as {
       owner: string;
+      cronOwner?: string;
       memoryManager?: MemoryManager;
       enableMemory?: boolean;
       weather?: unknown;
@@ -181,6 +182,7 @@ describe("buildAgentFactory tool wiring", () => {
       enableCron?: boolean;
     };
     expect(opts.owner).toBe("u1:webchat");
+    expect(opts.cronOwner).toBe("u1");
     expect(opts.memoryManager).toBeDefined();
     expect(opts.enableMemory).toBe(true);
   });

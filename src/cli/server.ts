@@ -343,6 +343,7 @@ export function buildAgentFactory(modelResolver: ModelResolver, system: BuildAge
         customTools: [
           ...createBuiltinTools({
             owner: `${userId}:${channelId}`,
+            cronOwner: userId,
             memoryManager,
             weather: toWeatherToolOptions(effective.weather),
             bash: { envPassthrough: effective.agent.bashEnvPassthrough },
