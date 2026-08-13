@@ -166,7 +166,8 @@ export async function createDefaultPiSession(deps: RealPiSessionDeps): Promise<P
     return undefined;
   });
 
-  const modelRegistry = new ModelRegistry(authStorage);
+  // inMemory(): 0.73.1 constructor is private; create() would read ~/.pi/agent/models.json
+  const modelRegistry = ModelRegistry.inMemory(authStorage);
 
   const customToolDefinitions = customTools ?? [];
 

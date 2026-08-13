@@ -35,10 +35,13 @@ vi.mock("@mariozechner/pi-coding-agent", () => {
         return instance;
       },
     },
-    ModelRegistry: class {
-      constructor(..._args: unknown[]) {
-        modelRegistryInstances.push(this);
-      }
+    ModelRegistry: {
+      // 0.73.1 made the constructor private; inMemory() is the public factory.
+      inMemory: (..._args: unknown[]) => {
+        const instance = { __modelRegistry: true };
+        modelRegistryInstances.push(instance);
+        return instance;
+      },
     },
     SessionManager: {
       create: (..._args: unknown[]) => {

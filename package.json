@@ -52,9 +52,9 @@
     "url": "https://github.com/counhopig/vex-bot/issues"
   },
   "dependencies": {
-    "@mariozechner/pi-agent-core": "^0.58.3",
-    "@mariozechner/pi-ai": "^0.58.3",
-    "@mariozechner/pi-coding-agent": "^0.60.0",
+    "@mariozechner/pi-agent-core": "^0.73.1",
+    "@mariozechner/pi-ai": "^0.73.1",
+    "@mariozechner/pi-coding-agent": "^0.73.1",
     "@sinclair/typebox": "^0.34.48",
     "axios": "^1.13.4",
     "better-sqlite3": "^12.11.1",
