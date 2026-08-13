@@ -375,6 +375,17 @@ async function startBrowser(
       "Vexlla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   });
   const page = await context.newPage();
+  // Block private/reserved/metadata hosts before the request leaves Chromium —
+  // a page's own JS or a redirect can otherwise reach internal services after
+  // the initial navigate URL was validated.
+  await page.route("**/*", async (route) => {
+    try {
+      assertWebFetchUrlAllowed(new URL(route.request().url()), allowPrivateNetwork());
+      await route.continue();
+    } catch {
+      await route.abort();
+    }
+  });
   browserSessions.set(ownerKey, {
     browser,
     context,
@@ -407,6 +418,8 @@ async function navigateTo(
   const url = assertNavigableUrl(rawUrl, allowPrivateNetwork());
   const page = session.page;
   await page.goto(url.href, { timeout, waitUntil: "domcontentloaded" });
+  // page.goto follows redirects inside Chromium; re-validate the landing URL.
+  assertNavigableUrl(page.url(), allowPrivateNetwork());
   session.refs.clear();
   return jsonResult({
     status: "navigated",
