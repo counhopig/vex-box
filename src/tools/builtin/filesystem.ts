@@ -105,6 +105,16 @@ export async function isRealPathAllowed(
   return isPathAllowed(real, realAllowedPaths);
 }
 
+/** Reject glob patterns that can traverse above the sandbox base. glob() resolves
+ *  `..` segments and absolute paths against cwd, so a model-supplied pattern like
+ *  "../../../.ssh/id_rsa" or "/etc/passwd" escapes the directory that
+ *  isRealPathAllowed validated. Windows drive paths are rejected too. */
+function isSafeGlobPattern(pattern: string): boolean {
+  if (/^([/\\]|[a-zA-Z]:[\\/])/.test(pattern)) return false; // absolute
+  if (pattern.split(/[/\\]/).includes("..")) return false;   // parent traversal
+  return true;
+}
+
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -497,6 +507,12 @@ export function createGlobTool(options?: FilesystemToolsOptions): Tool {
           true,
         );
       }
+      if (!isSafeGlobPattern(pattern)) {
+        return jsonResult(
+          { status: "error", error: `Unsafe glob pattern: ${pattern}` },
+          true,
+        );
+      }
 
       try {
         const matches = await glob(pattern, {
@@ -588,6 +604,12 @@ export function createGrepTool(options?: FilesystemToolsOptions): Tool {
           true,
         );
       }
+      if (!isSafeGlobPattern(globPattern)) {
+        return jsonResult(
+          { status: "error", error: `Unsafe glob pattern: ${globPattern}` },
+          true,
+        );
+      }
 
       try {
         const regex = new RegExp(pattern, caseInsensitive ? "gi" : "g");
@@ -601,7 +623,12 @@ export function createGrepTool(options?: FilesystemToolsOptions): Tool {
             nodir: true,
             ignore: ["**/node_modules/**", "**/.git/**"],
           });
-          files = matches.map((m: string) => join(resolved, m));
+          const allowed: string[] = [];
+          for (const m of matches) {
+            const abs = join(resolved, m);
+            if (await isRealPathAllowed(abs, opts.allowedPaths)) allowed.push(abs);
+          }
+          files = allowed;
         }
 
         const results: Array<{ file: string; line: number; content: string }> =
