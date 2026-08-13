@@ -391,7 +391,7 @@ export async function startWebServer(config: SystemConfig): Promise<WebServer> {
   }));
 
   const configPath = resolveConfigPath();
-  const webAuth = (config.webAuth ?? {}) as { enabled?: boolean; database?: string };
+  const webAuth = (config.webAuth ?? {}) as { enabled?: boolean; database?: string; secureCookies?: boolean };
   const dbPath = typeof webAuth.database === "string" && webAuth.database
     ? webAuth.database
     : join(homedir(), ".vex", "web-auth.sqlite");
@@ -420,7 +420,11 @@ export async function startWebServer(config: SystemConfig): Promise<WebServer> {
   });
   cron.start();
 
-  const auth = new WebAuthStore({ dbPath, enabled: webAuth.enabled ?? true });
+  const auth = new WebAuthStore({
+    dbPath,
+    enabled: webAuth.enabled ?? true,
+    secureCookies: typeof webAuth.secureCookies === "boolean" ? webAuth.secureCookies : undefined,
+  });
   const sessionStore = new FileSessionStore(join(homedir(), ".vex", "sessions"));
   const logStreamer = new LogStreamer();
   const credentialStore = new WeixinCredentialStore({ dbPath });

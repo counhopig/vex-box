@@ -66,7 +66,44 @@ vi.mock("../src/plugins/discovery.js", async (importOriginal) => {
   };
 });
 
-import { buildAgentFactory, createConfigStore } from "../src/cli/server.js";
+// Spy on WebAuthStore construction so startWebServer wiring tests can assert
+// the constructor args (e.g. webAuth.secureCookies from the system config)
+// without exposing the constructed store. The spy delegates to the real
+// implementation, so all other tests still get a fully-functional store.
+const webAuthStoreConstructorArgs: Array<{
+  dbPath?: string;
+  enabled?: boolean;
+  secureCookies?: boolean;
+  allowRegistration?: boolean;
+}> = [];
+vi.mock("../src/web/routes/auth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/web/routes/auth.js")>();
+  const RealStore = actual.WebAuthStore;
+  class SpyWebAuthStore extends RealStore {
+    constructor(opts: import("../src/web/routes/auth.js").WebAuthStoreOptions = {}) {
+      super(opts);
+      webAuthStoreConstructorArgs.push({ ...opts });
+    }
+  }
+  return { ...actual, WebAuthStore: SpyWebAuthStore };
+});
+
+// Stub WebServer so startWebServer wiring tests don't bind a real port or
+// fully wire Express routes. The stub records calls and exposes no-op
+// lifecycle methods.
+vi.mock("../src/web/server.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/web/server.js")>();
+  return {
+    ...actual,
+    WebServer: class {
+      initialize = vi.fn(async () => {});
+      start = vi.fn(async () => {});
+      shutdown = vi.fn(async () => {});
+    },
+  };
+});
+
+import { buildAgentFactory, createConfigStore, startWebServer } from "../src/cli/server.js";
 import { WebAuthStore } from "../src/web/routes/auth.js";
 import { createBuiltinTools } from "../src/tools/builtin/index.js";
 import type { ModelResolver } from "../src/providers/ModelResolver.js";
@@ -569,5 +606,85 @@ describe("buildAgentFactory runtime-config wiring", () => {
 
     await agentA.shutdown();
     await agentB.shutdown();
+  });
+});
+
+describe("startWebServer webAuth wiring", () => {
+  // Capture signal handlers so tests don't leak process listeners that
+  // would interfere with vitest's own teardown.
+  const sigintCalls: number[] = [];
+  const sigtermCalls: number[] = [];
+  const originalSigint = process.listeners("SIGINT");
+  const originalSigterm = process.listeners("SIGTERM");
+
+  beforeEach(() => {
+    sigintCalls.length = 0;
+    sigtermCalls.length = 0;
+    process.removeAllListeners("SIGINT");
+    process.removeAllListeners("SIGTERM");
+    process.on("SIGINT", () => {
+      sigintCalls.push(1);
+    });
+    process.on("SIGTERM", () => {
+      sigtermCalls.push(1);
+    });
+  });
+
+  afterEach(() => {
+    process.removeAllListeners("SIGINT");
+    process.removeAllListeners("SIGTERM");
+    for (const l of originalSigint) process.on("SIGINT", l);
+    for (const l of originalSigterm) process.on("SIGTERM", l);
+  });
+
+  function minimalSystemConfig(overrides: Record<string, unknown> = {}): import("../src/web/routes/config.js").SystemConfig {
+    return {
+      server: { port: 0, host: "127.0.0.1" },
+      providers: {},
+      agent: {},
+      logging: { level: "info", pretty: false },
+      webAuth: { enabled: true },
+      ...overrides,
+    } as import("../src/web/routes/config.js").SystemConfig;
+  }
+
+  it("passes webAuth.secureCookies from the system config to WebAuthStore", async () => {
+    webAuthStoreConstructorArgs.length = 0;
+    await startWebServer(minimalSystemConfig({
+      webAuth: { enabled: true, secureCookies: true },
+    }));
+
+    const last = webAuthStoreConstructorArgs.at(-1);
+    expect(last?.secureCookies).toBe(true);
+  });
+
+  it("passes webAuth.secureCookies: false through (not coerced to undefined)", async () => {
+    webAuthStoreConstructorArgs.length = 0;
+    await startWebServer(minimalSystemConfig({
+      webAuth: { enabled: true, secureCookies: false },
+    }));
+
+    const last = webAuthStoreConstructorArgs.at(-1);
+    expect(last?.secureCookies).toBe(false);
+  });
+
+  it("omits secureCookies when the system config does not set it (auto-detection)", async () => {
+    webAuthStoreConstructorArgs.length = 0;
+    await startWebServer(minimalSystemConfig({
+      webAuth: { enabled: true },
+    }));
+
+    const last = webAuthStoreConstructorArgs.at(-1);
+    expect(last?.secureCookies).toBeUndefined();
+  });
+
+  it("ignores a non-boolean secureCookies value (typeof guard)", async () => {
+    webAuthStoreConstructorArgs.length = 0;
+    await startWebServer(minimalSystemConfig({
+      webAuth: { enabled: true, secureCookies: "true" },
+    }));
+
+    const last = webAuthStoreConstructorArgs.at(-1);
+    expect(last?.secureCookies).toBeUndefined();
   });
 });
