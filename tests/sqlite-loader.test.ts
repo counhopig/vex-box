@@ -112,4 +112,82 @@ describe("SqliteLoader", () => {
     expect(loader.hasAnyUsers()).toBe(false);
     expect(loader.load("u1")).toEqual({});
   });
+
+  // -- per-user cache (plan 008) -------------------------------------------
+
+  it("caches per-user settings across repeated load() calls (no re-query on hot path)", () => {
+    const dbPath = tmpDb();
+    createSettingsTable(dbPath, {
+      u1: JSON.stringify({ agent: { temperature: 0.2 } }),
+    });
+    const loader = new SqliteLoader({ dbPath });
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.2 } });
+
+    // Mutate the row externally — without invalidate(), the cache must keep serving the old value.
+    const db = new Database(dbPath);
+    db.prepare("UPDATE web_user_settings SET settings_json = ? WHERE user_id = ?")
+      .run(JSON.stringify({ agent: { temperature: 0.9 } }), "u1");
+    db.close();
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.2 } });
+  });
+
+  it("re-queries after invalidate(userId) clears the cached entry", () => {
+    const dbPath = tmpDb();
+    createSettingsTable(dbPath, {
+      u1: JSON.stringify({ agent: { temperature: 0.2 } }),
+    });
+    const loader = new SqliteLoader({ dbPath });
+
+    loader.load("u1"); // populate cache
+    loader.invalidate("u1");
+
+    const db = new Database(dbPath);
+    db.prepare("UPDATE web_user_settings SET settings_json = ? WHERE user_id = ?")
+      .run(JSON.stringify({ agent: { temperature: 0.9 } }), "u1");
+    db.close();
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.9 } });
+  });
+
+  it("expires cache entries older than the configured TTL", async () => {
+    const dbPath = tmpDb();
+    createSettingsTable(dbPath, {
+      u1: JSON.stringify({ agent: { temperature: 0.2 } }),
+    });
+    const loader = new SqliteLoader({ dbPath, cacheTtlMs: 5 });
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.2 } });
+
+    const db = new Database(dbPath);
+    db.prepare("UPDATE web_user_settings SET settings_json = ? WHERE user_id = ?")
+      .run(JSON.stringify({ agent: { temperature: 0.9 } }), "u1");
+    db.close();
+
+    // Wait past the TTL so the cached entry is stale on the next load.
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.9 } });
+  });
+
+  it("clear() drops every cached entry", () => {
+    const dbPath = tmpDb();
+    createSettingsTable(dbPath, {
+      u1: JSON.stringify({ agent: { temperature: 0.2 } }),
+      u2: JSON.stringify({ agent: { temperature: 0.5 } }),
+    });
+    const loader = new SqliteLoader({ dbPath });
+
+    loader.load("u1");
+    loader.load("u2");
+    loader.clear();
+
+    const db = new Database(dbPath);
+    db.prepare("UPDATE web_user_settings SET settings_json = ? WHERE user_id = ?")
+      .run(JSON.stringify({ agent: { temperature: 0.9 } }), "u1");
+    db.close();
+
+    expect(loader.load("u1")).toEqual({ agent: { temperature: 0.9 } });
+  });
 });
