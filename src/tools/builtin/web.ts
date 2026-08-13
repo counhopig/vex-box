@@ -277,9 +277,12 @@ export function isBlockedAddress(ip: string): boolean {
     const hex = lower.match(/^::ffff:([0-9a-f]{1,4}(?::[0-9a-f]{1,4})?)$/);
     if (hex?.[1]) {
       const groups = hex[1].split(":");
+      // Single-group form (e.g. ::ffff:808) is the HIGH 16 bits of the IPv4
+      // address (::ffff:0808 = 8.8.0.0), so shift left by 16; the two-group
+      // form (::ffff:XXXX:YYYY) is the full 32 bits in network order.
       const num = groups.length === 2
         ? (parseInt(groups[0]!, 16) << 16) | parseInt(groups[1]!, 16)
-        : parseInt(groups[0]!, 16);
+        : parseInt(groups[0]!, 16) << 16;
       return isBlockedAddress(
         `${num >>> 24}.${(num >>> 16) & 0xff}.${(num >>> 8) & 0xff}.${num & 0xff}`,
       );

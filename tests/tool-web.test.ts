@@ -99,6 +99,10 @@ describe("isBlockedAddress", () => {
     expect(isBlockedAddress("::ffff:0a00:0001")).toBe(true);
   });
 
+  it("allows ::ffff:808 (single-group hex IPv4-mapped public address)", () => {
+    expect(isBlockedAddress("::ffff:808")).toBe(false);
+  });
+
   it("allows 2001:db8::1 (documentation IPv6)", () => {
     expect(isBlockedAddress("2001:db8::1")).toBe(false);
   });

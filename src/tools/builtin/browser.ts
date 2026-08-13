@@ -380,7 +380,14 @@ async function startBrowser(
   // the initial navigate URL was validated.
   await page.route("**/*", async (route) => {
     try {
-      assertWebFetchUrlAllowed(new URL(route.request().url()), allowPrivateNetwork());
+      const url = new URL(route.request().url());
+      // Non-network schemes (data:, blob:, about:, etc.) can't reach internal
+      // services — let them through; only validate http(s) requests.
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        await route.continue();
+        return;
+      }
+      assertWebFetchUrlAllowed(url, allowPrivateNetwork());
       await route.continue();
     } catch {
       await route.abort();
