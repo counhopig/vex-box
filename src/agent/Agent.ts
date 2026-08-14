@@ -73,6 +73,9 @@ export class Agent {
   private readonly pluginService?: AgentPluginService;
   private readonly features: Array<{ shutdown(): void | Promise<void> }>;
   private readonly runtime: AgentRuntime;
+  // Tracks in-flight processMessage turns so AgentRegistry eviction can
+  // skip busy entries instead of tearing down a mid-reply agent.
+  private busyCount = 0;
 
   constructor(
     private readonly ownerId: string,
@@ -87,66 +90,76 @@ export class Agent {
     this.features = deps.features ?? [];
   }
 
+  /** True while at least one processMessage() call is awaiting the LLM. */
+  get isBusy(): boolean {
+    return this.busyCount > 0;
+  }
+
   async processMessage(ctx: InboundMessageContext): Promise<AgentResponse> {
-    logger.debug({ channelId: ctx.channelId, content: ctx.content.slice(0, 100) }, "Processing message");
-
-    // 1. Pipeline interceptors (may short-circuit)
-    const intercepted = await this.pipeline.runInterceptors(ctx);
-    if (intercepted !== null) {
-      logger.debug("Message intercepted, short-circuiting");
-      return {
-        content: intercepted,
-        provider: "interceptor",
-        model: "interceptor",
-      };
-    }
-
-    // 2. Build system prompt via SystemPromptAssembler.
-    // Persona owns Section 1 exclusively — assembleSystemPrompt handles the
-    // mutually-exclusive persona-vs-DEFAULT_IDENTITY branching. The user's
-    // configured agent.systemPrompt follows identity as custom instructions.
-    const personaBlock = this.persona ? await this.persona.buildPrompt(ctx) : undefined;
-
-    const systemPrompt = assembleSystemPrompt({
-      persona: personaBlock || undefined,
-      customInstructions: this.config.agent.systemPrompt,
-      skills: this.skillsPrompt,
-    });
-
-    // 3. Gather prompt injections (appended after the base system prompt)
-    const injections = await this.pipeline.gatherPromptInjections(ctx);
-    const finalPrompt = injections.length > 0
-      ? systemPrompt + "\n\n---\n\n" + injections.join("\n\n---\n\n")
-      : systemPrompt;
-
-    emitAgentStart({
-      provider: this.config.agent.defaultProvider,
-      model: this.config.agent.defaultModel,
-      messages: [],
-    });
-
-    const startMs = Date.now();
-    let reply: AgentRuntimeReply | undefined;
+    this.busyCount++;
     try {
-      // 4. Call LLM via the per-Agent AgentRuntime
-      reply = await this.runtime.chat(finalPrompt, ctx);
-      // 5. Persist Persona-owned post-turn state before optional observers.
-      await this.persona?.observeResponse(ctx, reply.content);
-      // 6. Run pipeline observers
-      await this.pipeline.runObservers(ctx, reply.content);
-      return {
-        content: reply.content,
-        provider: reply.provider,
-        model: reply.model,
-        ...(reply.usage ? { usage: reply.usage } : {}),
-      };
-    } finally {
-      emitAgentEnd({
-        provider: reply?.provider ?? this.config.agent.defaultProvider,
-        model: reply?.model ?? this.config.agent.defaultModel,
-        response: reply?.content ?? "",
-        durationMs: Date.now() - startMs,
+      logger.debug({ channelId: ctx.channelId, content: ctx.content.slice(0, 100) }, "Processing message");
+
+      // 1. Pipeline interceptors (may short-circuit)
+      const intercepted = await this.pipeline.runInterceptors(ctx);
+      if (intercepted !== null) {
+        logger.debug("Message intercepted, short-circuiting");
+        return {
+          content: intercepted,
+          provider: "interceptor",
+          model: "interceptor",
+        };
+      }
+
+      // 2. Build system prompt via SystemPromptAssembler.
+      // Persona owns Section 1 exclusively — assembleSystemPrompt handles the
+      // mutually-exclusive persona-vs-DEFAULT_IDENTITY branching. The user's
+      // configured agent.systemPrompt follows identity as custom instructions.
+      const personaBlock = this.persona ? await this.persona.buildPrompt(ctx) : undefined;
+
+      const systemPrompt = assembleSystemPrompt({
+        persona: personaBlock || undefined,
+        customInstructions: this.config.agent.systemPrompt,
+        skills: this.skillsPrompt,
       });
+
+      // 3. Gather prompt injections (appended after the base system prompt)
+      const injections = await this.pipeline.gatherPromptInjections(ctx);
+      const finalPrompt = injections.length > 0
+        ? systemPrompt + "\n\n---\n\n" + injections.join("\n\n---\n\n")
+        : systemPrompt;
+
+      emitAgentStart({
+        provider: this.config.agent.defaultProvider,
+        model: this.config.agent.defaultModel,
+        messages: [],
+      });
+
+      const startMs = Date.now();
+      let reply: AgentRuntimeReply | undefined;
+      try {
+        // 4. Call LLM via the per-Agent AgentRuntime
+        reply = await this.runtime.chat(finalPrompt, ctx);
+        // 5. Persist Persona-owned post-turn state before optional observers.
+        await this.persona?.observeResponse(ctx, reply.content);
+        // 6. Run pipeline observers
+        await this.pipeline.runObservers(ctx, reply.content);
+        return {
+          content: reply.content,
+          provider: reply.provider,
+          model: reply.model,
+          ...(reply.usage ? { usage: reply.usage } : {}),
+        };
+      } finally {
+        emitAgentEnd({
+          provider: reply?.provider ?? this.config.agent.defaultProvider,
+          model: reply?.model ?? this.config.agent.defaultModel,
+          response: reply?.content ?? "",
+          durationMs: Date.now() - startMs,
+        });
+      }
+    } finally {
+      this.busyCount--;
     }
   }
 

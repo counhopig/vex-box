@@ -30,7 +30,7 @@ import { Persona } from "../agent/persona/Persona.js";
 import { PersonaStorage } from "../agent/persona/PersonaStorage.js";
 import { createPersonaConfig } from "../agent/persona/PersonaConfig.js";
 import { createDefaultPiSession } from "../agent/createDefaultPiSession.js";
-import { createBuiltinTools } from "../tools/builtin/index.js";
+import { createBuiltinTools, disposeOwnerResources } from "../tools/builtin/index.js";
 import { ToolRegistry } from "../tools/ToolRegistry.js";
 import { createMemoryManager } from "../memory/index.js";
 import { loadAllSkills } from "../skills/SkillLoader.js";
@@ -343,6 +343,7 @@ export function buildAgentFactory(modelResolver: ModelResolver, system: BuildAge
         customTools: [
           ...createBuiltinTools({
             owner: `${userId}:${channelId}`,
+            cronOwner: userId,
             memoryManager,
             weather: toWeatherToolOptions(effective.weather),
             bash: { envPassthrough: effective.agent.bashEnvPassthrough },
@@ -362,7 +363,10 @@ export function buildAgentFactory(modelResolver: ModelResolver, system: BuildAge
       runtime,
       skillsPrompt,
       pluginService,
-      features: skillLearner ? [skillLearner] : [],
+      features: [
+        ...(skillLearner ? [skillLearner] : []),
+        { shutdown: () => disposeOwnerResources(`${userId}:${channelId}`) },
+      ],
     });
   };
 }
@@ -391,7 +395,7 @@ export async function startWebServer(config: SystemConfig): Promise<WebServer> {
   }));
 
   const configPath = resolveConfigPath();
-  const webAuth = (config.webAuth ?? {}) as { enabled?: boolean; database?: string };
+  const webAuth = (config.webAuth ?? {}) as { enabled?: boolean; database?: string; secureCookies?: boolean };
   const dbPath = typeof webAuth.database === "string" && webAuth.database
     ? webAuth.database
     : join(homedir(), ".vex", "web-auth.sqlite");
@@ -420,7 +424,12 @@ export async function startWebServer(config: SystemConfig): Promise<WebServer> {
   });
   cron.start();
 
-  const auth = new WebAuthStore({ dbPath, enabled: webAuth.enabled ?? true });
+  const auth = new WebAuthStore({
+    dbPath,
+    enabled: webAuth.enabled ?? true,
+    secureCookies: typeof webAuth.secureCookies === "boolean" ? webAuth.secureCookies : undefined,
+    onUserConfigSaved: (userId) => configStore.invalidateUserConfig(userId),
+  });
   const sessionStore = new FileSessionStore(join(homedir(), ".vex", "sessions"));
   const logStreamer = new LogStreamer();
   const credentialStore = new WeixinCredentialStore({ dbPath });

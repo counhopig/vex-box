@@ -17,17 +17,47 @@ const logger = getChildLogger("sqlite-loader");
 
 export type { UserConfigSettings } from "../UserConfigLoader.js";
 
+// Conservative cache TTL: until the Web control panel's write path calls invalidate(userId), per-user changes propagate within this window.
+const DEFAULT_CACHE_TTL_MS = 30_000;
+
+interface SqliteCacheEntry {
+  settings: UserConfigSettings;
+  ts: number;
+}
+
 export class SqliteLoader implements UserConfigLoader {
   private readonly dbPath: string;
+  private readonly cacheTtlMs: number;
+  // Per-instance, per-user cache. Caching the read avoids a fresh SQLite open/close + JSON parse per dispatch.
+  private readonly cache = new Map<string, SqliteCacheEntry>();
 
-  constructor(options: { dbPath: string }) {
+  constructor(options: { dbPath: string; cacheTtlMs?: number }) {
     this.dbPath = options.dbPath;
+    this.cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
   }
 
-  /** Load user config settings from the web_user_settings table.
-   *  Returns an empty object when the user has no saved settings or the
-   *  database does not exist yet. */
+  /** Load user config settings from the web_user_settings table. Returns {} when the user has no saved settings or the DB is unavailable. Cached per-user with a conservative TTL (see plan 008 Maintenance notes). */
   load(userId: string): UserConfigSettings {
+    const cached = this.cache.get(userId);
+    if (cached && Date.now() - cached.ts < this.cacheTtlMs) {
+      return cached.settings;
+    }
+    const settings = this.loadFresh(userId);
+    this.cache.set(userId, { settings, ts: Date.now() });
+    return settings;
+  }
+
+  /** Drop the cached entry for one user — call from the Web control panel's write path so a per-user save is reflected immediately. */
+  invalidate(userId: string): void {
+    this.cache.delete(userId);
+  }
+
+  /** Drop every cached entry — useful on schema/migration changes or in tests. */
+  clear(): void {
+    this.cache.clear();
+  }
+
+  private loadFresh(userId: string): UserConfigSettings {
     let db: Database.Database | null = null;
     try {
       db = new Database(this.dbPath, { readonly: true });

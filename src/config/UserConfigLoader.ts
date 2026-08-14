@@ -26,4 +26,8 @@ export interface UserConfigLoader {
   /** Load a user's config-override sections. Returns {} when the user has
    *  no saved settings or the backing store is unavailable. */
   load(userId: string): UserConfigSettings;
+  /** Drop the cached entry for one user so a subsequent load re-reads the
+   *  backing store. Implemented by caching loaders (SqliteLoader); optional
+   *  so test fakes and non-caching loaders need not implement it. */
+  invalidate?(userId: string): void;
 }

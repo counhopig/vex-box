@@ -83,6 +83,33 @@ describe("isBlockedAddress", () => {
   it("blocks ::ffff:127.0.0.1 (IPv4-mapped IPv6 loopback)", () => {
     expect(isBlockedAddress("::ffff:127.0.0.1")).toBe(true);
   });
+
+  // Hex-encoded IPv4-mapped IPv6 (plan 002: defeat SSRF bypass via hex form).
+  // ::ffff:7f00:1 = 127.0.0.1, ::ffff:a9fe:a9fe = 169.254.169.254,
+  // ::ffff:0a00:0001 = 10.0.0.1.
+  it("blocks ::ffff:7f00:1 (hex IPv4-mapped IPv6 loopback)", () => {
+    expect(isBlockedAddress("::ffff:7f00:1")).toBe(true);
+  });
+
+  it("blocks ::ffff:a9fe:a9fe (hex IPv4-mapped IPv6 metadata)", () => {
+    expect(isBlockedAddress("::ffff:a9fe:a9fe")).toBe(true);
+  });
+
+  it("blocks ::ffff:0a00:0001 (hex IPv4-mapped IPv6 private 10.0.0.1)", () => {
+    expect(isBlockedAddress("::ffff:0a00:0001")).toBe(true);
+  });
+
+  it("allows ::ffff:808 (single-group hex IPv4-mapped public address)", () => {
+    expect(isBlockedAddress("::ffff:808")).toBe(false);
+  });
+
+  it("allows 2001:db8::1 (documentation IPv6)", () => {
+    expect(isBlockedAddress("2001:db8::1")).toBe(false);
+  });
+
+  it("allows 2606:4700:4700::1111 (public IPv6)", () => {
+    expect(isBlockedAddress("2606:4700:4700::1111")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

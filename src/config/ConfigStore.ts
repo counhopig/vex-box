@@ -105,6 +105,12 @@ export class ConfigStore {
     } as EffectiveConfig;
   }
 
+  /** Drop a user's cached tier-3 overrides so the next resolve re-reads the
+   *  backing store. Called by the Web control panel's write path after a save. */
+  invalidateUserConfig(userId: string): void {
+    this.userConfigLoader?.invalidate?.(userId);
+  }
+
   /** Apply a partial config on top of the accumulator (one-level deep merge). */
   private applyTo(acc: Record<string, unknown>, layer: Record<string, unknown>): void {
     for (const key of Object.keys(layer)) {

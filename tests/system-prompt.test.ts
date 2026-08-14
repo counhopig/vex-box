@@ -1,13 +1,11 @@
 /**
- * SystemPromptAssembler tests — 5-section prompt assembly with
+ * SystemPromptAssembler tests — 3-section prompt assembly with
  * mutually-exclusive persona vs DEFAULT_IDENTITY.
  *
  * Architecture doc (§11):
  *   Section 1: PERSONA (BASE) — always first. The LLM sees identity first.
- *   Section 2: ENVIRONMENT
- *   Section 3: TOOL RULES
- *   Section 4: SKILLS
- *   Section 5: OUTPUT FORMAT
+ *   Section 2: CUSTOM INSTRUCTIONS
+ *   Section 3: SKILLS
  */
 
 import { describe, it, expect } from "vitest";
@@ -36,25 +34,22 @@ describe("SystemPromptAssembler", () => {
 
   // -- sections in order ---------------------------------------------------
 
-  it("assembles sections in the correct order: persona, env, tools, skills, output", () => {
+  it("assembles sections in the correct order: persona → customInstructions → skills", () => {
     const prompt = assembleSystemPrompt({
-      persona: "【角色身份】",
-      environment: "【环境信息】",
-      toolRules: "【工具规则】",
-      skills: "【技能】",
-      outputFormat: "【输出格式】",
+      persona: "PERSONA_MARKER_001",
+      customInstructions: "CUSTOM_INSTRUCTIONS_MARKER_002",
+      skills: "SKILLS_MARKER_003",
     });
 
-    const personaIdx = prompt.indexOf("【角色身份】");
-    const envIdx = prompt.indexOf("【环境信息】");
-    const toolIdx = prompt.indexOf("【工具规则】");
-    const skillIdx = prompt.indexOf("【技能】");
-    const outputIdx = prompt.indexOf("【输出格式】");
+    const personaIdx = prompt.indexOf("PERSONA_MARKER_001");
+    const customIdx = prompt.indexOf("CUSTOM_INSTRUCTIONS_MARKER_002");
+    const skillsIdx = prompt.indexOf("SKILLS_MARKER_003");
 
-    expect(personaIdx).toBeLessThan(envIdx);
-    expect(envIdx).toBeLessThan(toolIdx);
-    expect(toolIdx).toBeLessThan(skillIdx);
-    expect(skillIdx).toBeLessThan(outputIdx);
+    expect(personaIdx).toBeGreaterThanOrEqual(0);
+    expect(customIdx).toBeGreaterThanOrEqual(0);
+    expect(skillsIdx).toBeGreaterThanOrEqual(0);
+    expect(personaIdx).toBeLessThan(customIdx);
+    expect(customIdx).toBeLessThan(skillsIdx);
   });
 
   // -- optional sections omitted -------------------------------------------
@@ -62,10 +57,8 @@ describe("SystemPromptAssembler", () => {
   it("omits sections that are not provided", () => {
     const prompt = assembleSystemPrompt({ persona: "角色" });
     expect(prompt).toContain("角色");
-    expect(prompt).not.toContain("【环境信息】");
-    expect(prompt).not.toContain("【工具规则】");
-    expect(prompt).not.toContain("【技能】");
-    expect(prompt).not.toContain("【输出格式】");
+    expect(prompt).not.toContain("【自定义指令】");
+    expect(prompt).not.toContain("【技能模板】");
   });
 
   // -- section labelling ---------------------------------------------------
@@ -78,10 +71,10 @@ describe("SystemPromptAssembler", () => {
   it("labels provided optional sections with their headers", () => {
     const prompt = assembleSystemPrompt({
       persona: "角色",
-      environment: "env info",
-      toolRules: "tool rules",
+      customInstructions: "CUSTOM_INSTRUCTIONS_BODY",
+      skills: "SKILLS_BODY",
     });
-    expect(prompt).toContain("env info");
-    expect(prompt).toContain("tool rules");
+    expect(prompt).toContain("CUSTOM_INSTRUCTIONS_BODY");
+    expect(prompt).toContain("SKILLS_BODY");
   });
 });

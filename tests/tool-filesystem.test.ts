@@ -4,7 +4,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { resolve } from "path";
-import { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmdirSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, unlinkSync, rmdirSync, symlinkSync } from "fs";
 import { tmpdir } from "os";
 
 describe("resolveUserPath", () => {
@@ -90,5 +90,113 @@ describe("filesystem tools metadata", () => {
     expect(names).toContain("list_directory");
     expect(names).toContain("glob");
     expect(names).toContain("grep");
+  });
+});
+
+describe("glob/grep pattern traversal protection", () => {
+  let createGlobTool: typeof import("../src/tools/builtin/filesystem.js").createGlobTool;
+  let createGrepTool: typeof import("../src/tools/builtin/filesystem.js").createGrepTool;
+
+  beforeAll(async () => {
+    const mod = await import("../src/tools/builtin/filesystem.js");
+    createGlobTool = mod.createGlobTool;
+    createGrepTool = mod.createGrepTool;
+  });
+
+  it("glob rejects parent-traversal pattern with Unsafe glob pattern error", async () => {
+    const sandbox = mkdtempSync(`${tmpdir()}/vex-glob-traversal-`);
+    try {
+      const tool = createGlobTool({ allowedPaths: [sandbox] });
+      const result = await tool.execute(
+        "test",
+        { pattern: "../*", path: sandbox },
+        undefined,
+        undefined,
+        {} as Parameters<ReturnType<typeof createGlobTool>["execute"]>[4],
+      );
+      const details = result.details as { status: string; error: string };
+      expect(details.status).toBe("error");
+      expect(details.error).toContain("Unsafe glob pattern");
+      expect(details.error).toContain("../*");
+    } finally {
+      rmdirSync(sandbox, { recursive: true });
+    }
+  });
+
+  it("glob rejects absolute pattern with Unsafe glob pattern error", async () => {
+    const sandbox = mkdtempSync(`${tmpdir()}/vex-glob-abs-`);
+    try {
+      const tool = createGlobTool({ allowedPaths: [sandbox] });
+      const result = await tool.execute(
+        "test",
+        { pattern: "/etc/*", path: sandbox },
+        undefined,
+        undefined,
+        {} as Parameters<ReturnType<typeof createGlobTool>["execute"]>[4],
+      );
+      const details = result.details as { status: string; error: string };
+      expect(details.status).toBe("error");
+      expect(details.error).toContain("Unsafe glob pattern");
+      expect(details.error).toContain("/etc/*");
+    } finally {
+      rmdirSync(sandbox, { recursive: true });
+    }
+  });
+
+  it("grep rejects parent-traversal glob_pattern with Unsafe glob pattern error", async () => {
+    const sandbox = mkdtempSync(`${tmpdir()}/vex-grep-traversal-`);
+    try {
+      const tool = createGrepTool({ allowedPaths: [sandbox] });
+      const result = await tool.execute(
+        "test",
+        { pattern: "anything", glob_pattern: "../*", path: sandbox },
+        undefined,
+        undefined,
+        {} as Parameters<ReturnType<typeof createGrepTool>["execute"]>[4],
+      );
+      const details = result.details as { status: string; error: string };
+      expect(details.status).toBe("error");
+      expect(details.error).toContain("Unsafe glob pattern");
+      expect(details.error).toContain("../*");
+    } finally {
+      rmdirSync(sandbox, { recursive: true });
+    }
+  });
+
+  it("grep drops symlink targets that resolve outside the sandbox", async () => {
+    const sandbox = mkdtempSync(`${tmpdir()}/vex-grep-symlink-sandbox-`);
+    const outside = mkdtempSync(`${tmpdir()}/vex-grep-symlink-outside-`);
+    try {
+      writeFileSync(resolve(outside, "secret.txt"), "SECRET-MARKER-XYZ");
+      symlinkSync(resolve(outside, "secret.txt"), resolve(sandbox, "link.txt"));
+      writeFileSync(resolve(sandbox, "innocent.txt"), "nothing here");
+
+      const tool = createGrepTool({ allowedPaths: [sandbox] });
+      const result = await tool.execute(
+        "test",
+        {
+          pattern: "SECRET-MARKER-XYZ",
+          glob_pattern: "**/*",
+          path: sandbox,
+        },
+        undefined,
+        undefined,
+        {} as Parameters<ReturnType<typeof createGrepTool>["execute"]>[4],
+      );
+      // Post-validation drops the symlink target — content stays hidden.
+      const details = result.details as {
+        pattern: string;
+        totalMatches: number;
+      };
+      expect(details.totalMatches).toBe(0);
+      const text = result.content
+        .map((c) => (c.type === "text" ? c.text : ""))
+        .join("\n");
+      expect(text).not.toContain("SECRET-MARKER-XYZ");
+      expect(text).not.toContain("secret.txt");
+    } finally {
+      rmdirSync(sandbox, { recursive: true });
+      rmdirSync(outside, { recursive: true });
+    }
   });
 });

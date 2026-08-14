@@ -44,6 +44,8 @@ config.local.yaml.*
 
 # Work tracking
 .omo/
+.omre/
+plans/
 
 # AI tools
 .claude/

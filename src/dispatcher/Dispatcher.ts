@@ -43,7 +43,7 @@ export interface DispatchOutboundMessage {
 export class Dispatcher {
   constructor(
     private readonly configStore: ConfigStore,
-    private readonly agentRegistry: AgentRegistry<{ processMessage(ctx: InboundMessageContext): Promise<{ content: string }>; shutdown(): Promise<void> }>,
+    private readonly agentRegistry: AgentRegistry<{ processMessage(ctx: InboundMessageContext): Promise<{ content: string }>; shutdown(): Promise<void>; isBusy: boolean }>,
     private readonly deliver: (msg: DispatchOutboundMessage) => Promise<void>,
   ) {}
 

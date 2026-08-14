@@ -8,9 +8,10 @@
  *   Built-in → config.local.yaml → web_user_settings → EffectiveConfig
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { ConfigStore } from "../src/config/ConfigStore.js";
 import { YamlLoader } from "../src/config/resolvers/YamlLoader.js";
+import yaml from "yaml";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -281,5 +282,62 @@ describe("ConfigStore", () => {
     const config = await store.resolve("u", "c", { agent: { temperature: 0.9 } });
 
     expect(config.agent.temperature).toBe(0.9);
+  });
+
+  it("invalidateUserConfig delegates to the injected loader's invalidate", async () => {
+    const invalidate = vi.fn();
+    const loader = { load: () => ({}), invalidate };
+    const store = new ConfigStore({ yamlLoader: new YamlLoader("/nonexistent"), userConfigLoader: loader });
+
+    expect(() => store.invalidateUserConfig("alice")).not.toThrow();
+
+    expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(invalidate).toHaveBeenCalledWith("alice");
+  });
+
+  it("invalidateUserConfig is a no-op when the loader has no invalidate", async () => {
+    const loader = { load: () => ({}) };
+    const store = new ConfigStore({ yamlLoader: new YamlLoader("/nonexistent"), userConfigLoader: loader });
+
+    expect(() => store.invalidateUserConfig("alice")).not.toThrow();
+  });
+
+  // -- YAML mtime cache (plan 008) ----------------------------------------
+
+  it("caches YAML reads across multiple resolve() calls (yaml.parse called once)", async () => {
+    const dir = tmpDir();
+    try {
+      const yamlPath = writeYaml(dir, { agent: { defaultProvider: "openai" } });
+      const store = new ConfigStore({ yamlLoader: new YamlLoader(yamlPath) });
+      const spy = vi.spyOn(yaml, "parse");
+
+      await store.resolve("u", "c");
+      await store.resolve("u", "c");
+      await store.resolve("u", "c");
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      spy.mockRestore();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("invalidates the YAML cache when the file's mtimeMs advances", async () => {
+    const dir = tmpDir();
+    try {
+      const yamlPath = writeYaml(dir, { agent: { defaultProvider: "openai" } });
+      const store = new ConfigStore({ yamlLoader: new YamlLoader(yamlPath) });
+
+      expect((await store.resolve("u", "c")).agent.defaultProvider).toBe("openai");
+
+      // Rewrite the file with bumped mtime so the cache key strictly increases
+      writeYaml(dir, { agent: { defaultProvider: "anthropic" } });
+      const futureTime = new Date(Date.now() + 60_000);
+      fs.utimesSync(yamlPath, futureTime, futureTime);
+
+      expect((await store.resolve("u", "c")).agent.defaultProvider).toBe("anthropic");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

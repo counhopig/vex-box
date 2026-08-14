@@ -105,6 +105,9 @@ export interface WebAuthStoreOptions {
   secureCookies?: boolean;
   /** When true, self-service registration stays open past the first account. */
   allowRegistration?: boolean;
+  /** Invoked after saveUserConfigSettings writes a user's settings, so the
+   *  config layer can drop its cached copy for that user immediately. */
+  onUserConfigSaved?: (userId: string) => void;
 }
 
 interface WebUserRow {
@@ -138,6 +141,7 @@ export class WebAuthStore {
   private dummyCredentials: Pick<WebUser, "passwordHash" | "passwordSalt"> | null = null;
   private readonly loginFailures = new Map<string, { windowStart: number; count: number }>();
   private lastSessionPrune = 0;
+  private readonly onUserConfigSaved?: (userId: string) => void;
 
   constructor(options: WebAuthStoreOptions = {}) {
     const dbPath = options.dbPath ?? getDefaultAuthDbPath();
@@ -145,6 +149,7 @@ export class WebAuthStore {
     this._enabled = options.enabled ?? true;
     this._secureCookies = options.secureCookies;
     this._allowRegistration = options.allowRegistration ?? false;
+    this.onUserConfigSaved = options.onUserConfigSaved;
   }
 
   get isEnabled(): boolean {
@@ -558,6 +563,7 @@ export class WebAuthStore {
         settings_json = excluded.settings_json,
         updated_at = excluded.updated_at
     `).run(userId, JSON.stringify(next), Date.now());
+    this.onUserConfigSaved?.(userId);
     return next;
   }
 

@@ -26,9 +26,21 @@ const logger = getChildLogger("agent-registry");
 // Internal types
 // ---------------------------------------------------------------------------
 
+/**
+ * Minimum surface an entry must expose so the registry can dispose it and
+ * skip eviction while it is mid-turn. `isBusy` is optional: a T without the
+ * flag is treated as never busy, matching the pre-busy-skip behavior.
+ */
+export interface DisposableRuntime {
+  shutdown(): Promise<void>;
+  isBusy?: boolean;
+}
+
 interface Entry<T> {
   /** In-flight creation Promise so concurrent callers share one build. */
   readonly runtime: Promise<T>;
+  /** Cached resolved runtime reference (set once the build promise settles). */
+  resolved?: T;
   lastAccess: number;
 }
 
@@ -43,7 +55,7 @@ const DEFAULT_IDLE_TTL_MS = 30 * 60 * 1_000;
 // AgentRegistry
 // ---------------------------------------------------------------------------
 
-export class AgentRegistry<T extends { shutdown(): Promise<void> }> {
+export class AgentRegistry<T extends DisposableRuntime> {
   private readonly entries = new Map<string, Entry<T>>();
 
   /**
@@ -92,9 +104,16 @@ export class AgentRegistry<T extends { shutdown(): Promise<void> }> {
     const entry: Entry<T> = { runtime, lastAccess: Date.now() };
     this.entries.set(k, entry);
 
+    // On build success, cache the resolved reference so eviction paths can
+    // read isBusy synchronously without awaiting the build promise (which
+    // would force evictIdle to become async and break getOrCreate timing).
     // On build failure, evict the cached rejection so a later call retries
     // a fresh build instead of permanently serving the failure.
-    runtime.catch(() => {
+    runtime.then((resolved) => {
+      if (this.entries.get(k) === entry) {
+        entry.resolved = resolved;
+      }
+    }).catch(() => {
       if (this.entries.get(k) === entry) {
         this.entries.delete(k);
         logger.warn({ userId, channelId }, "Agent build failed, entry evicted");
@@ -191,25 +210,33 @@ export class AgentRegistry<T extends { shutdown(): Promise<void> }> {
     }
   }
 
-  /** Evict entries that have been idle past the TTL. */
+  /** Evict entries that have been idle past the TTL. Busy entries are kept
+   *  alive (lastAccess refreshed) so an in-flight LLM turn is not torn down. */
   private evictIdle(): void {
     if (this.idleTtlMs <= 0) return;
     const cutoff = Date.now() - this.idleTtlMs;
     for (const [k, entry] of this.entries) {
-      if (entry.lastAccess < cutoff) {
-        this.entries.delete(k);
-        void this.trackDispose(entry.runtime, k, "idle");
+      if (entry.lastAccess >= cutoff) continue;
+      if (entry.resolved?.isBusy) {
+        // Refresh access time so the entry survives the next sweep; the
+        // mid-turn check repeats until processMessage completes.
+        entry.lastAccess = Date.now();
+        continue;
       }
+      this.entries.delete(k);
+      void this.trackDispose(entry.runtime, k, "idle");
     }
   }
 
-  /** Evict LRU entries until back under maxEntries. */
+  /** Evict LRU entries until back under maxEntries, skipping busy entries
+   *  so an in-flight turn is never the one chosen for overflow eviction. */
   private evictOverflow(): void {
     if (this.maxEntries <= 0) return;
     while (this.entries.size > this.maxEntries) {
       let oldestKey: string | undefined;
       let oldestAccess = Infinity;
       for (const [k, entry] of this.entries) {
+        if (entry.resolved?.isBusy) continue;
         if (entry.lastAccess < oldestAccess) {
           oldestAccess = entry.lastAccess;
           oldestKey = k;

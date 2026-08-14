@@ -321,6 +321,21 @@ describe("WebAuthStore", () => {
       persona: { persona_name: "Second" },
     });
   });
+
+  it("invokes onUserConfigSaved with the user id after a settings save", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "vex-web-auth-test-"));
+    tempDirs.push(dir);
+    const calls: string[] = [];
+    const store = new WebAuthStore({
+      dbPath: join(dir, "auth.sqlite"),
+      onUserConfigSaved: (id) => calls.push(id),
+    });
+    const user = await store.createUser("saved-user", "password123");
+
+    store.saveUserConfigSettings(user.id, { persona: { persona_name: "X" } });
+
+    expect(calls).toEqual([user.id]);
+  });
 });
 
 describe("web auth routes", () => {

@@ -95,4 +95,61 @@ describe("createCronExecutor", () => {
     expect(result.status).toBe("error");
     expect(result.error).toBe("dispatch failed");
   });
+
+  it("agentTurn without deliver routes to webchat on cron:<jobId>", async () => {
+    const calls: InboundMessageContext[] = [];
+    const trackingDispatcher = vi.fn(async (ctx: InboundMessageContext) => {
+      calls.push(ctx);
+    });
+    const exec = createCronExecutor({ dispatch: trackingDispatcher });
+    await exec.executeJob(
+      makeJob({ kind: "agentTurn", message: "tick", deliver: false }),
+    );
+    expect(calls[0]?.channelId).toBe("webchat");
+    expect(calls[0]?.chatId).toBe("cron:test-job");
+    expect(calls[0]?.senderId).toBe("cron-system");
+  });
+
+  it("agentTurn with deliver=true routes to payload channel/to and keeps ownerId", async () => {
+    const calls: InboundMessageContext[] = [];
+    const trackingDispatcher = vi.fn(async (ctx: InboundMessageContext) => {
+      calls.push(ctx);
+    });
+    const exec = createCronExecutor({ dispatch: trackingDispatcher });
+    await exec.executeJob(
+      makeJob(
+        {
+          kind: "agentTurn",
+          message: "report",
+          deliver: true,
+          channel: "weixin",
+          to: "wx-user-1",
+        },
+        "user-42",
+      ),
+    );
+    expect(calls[0]?.channelId).toBe("weixin");
+    expect(calls[0]?.chatId).toBe("wx-user-1");
+    expect(calls[0]?.webUserId).toBe("user-42");
+    expect(calls[0]?.senderId).toBe("cron-system");
+  });
+
+  it("agentTurn with invalid deliver channel falls back to webchat", async () => {
+    const calls: InboundMessageContext[] = [];
+    const trackingDispatcher = vi.fn(async (ctx: InboundMessageContext) => {
+      calls.push(ctx);
+    });
+    const exec = createCronExecutor({ dispatch: trackingDispatcher });
+    await exec.executeJob(
+      makeJob({
+        kind: "agentTurn",
+        message: "tick",
+        deliver: true,
+        channel: "bogus",
+        to: "ignored",
+      }),
+    );
+    expect(calls[0]?.channelId).toBe("webchat");
+    expect(calls[0]?.chatId).toBe("cron:test-job");
+  });
 });

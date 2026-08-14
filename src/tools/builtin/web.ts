@@ -269,10 +269,24 @@ export function isBlockedAddress(ip: string): boolean {
     if (lower === "::1" || lower === "::") return true; // loopback / unspecified
     if (lower.startsWith("fe80")) return true; // link-local
     if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // ULA fc00::/7
-    const mapped = lower.match(
-      /::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/,
-    ); // IPv4-mapped
-    if (mapped?.[1]) return isBlockedAddress(mapped[1]);
+    const dotted = lower.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+    if (dotted?.[1]) return isBlockedAddress(dotted[1]);
+    // Hex-encoded IPv4-mapped form (e.g. ::ffff:7f00:1 = 127.0.0.1,
+    // ::ffff:a9fe:a9fe = 169.254.169.254). Decode the trailing 32 bits
+    // to dotted quad and run the IPv4 checks on it.
+    const hex = lower.match(/^::ffff:([0-9a-f]{1,4}(?::[0-9a-f]{1,4})?)$/);
+    if (hex?.[1]) {
+      const groups = hex[1].split(":");
+      // Single-group form (e.g. ::ffff:808) is the HIGH 16 bits of the IPv4
+      // address (::ffff:0808 = 8.8.0.0), so shift left by 16; the two-group
+      // form (::ffff:XXXX:YYYY) is the full 32 bits in network order.
+      const num = groups.length === 2
+        ? (parseInt(groups[0]!, 16) << 16) | parseInt(groups[1]!, 16)
+        : parseInt(groups[0]!, 16) << 16;
+      return isBlockedAddress(
+        `${num >>> 24}.${(num >>> 16) & 0xff}.${(num >>> 8) & 0xff}.${num & 0xff}`,
+      );
+    }
     return false;
   }
   return false;
