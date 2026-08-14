@@ -133,6 +133,19 @@ describe("resolveRefLocatorSpec", () => {
       selector: "#submit-button",
     });
   });
+
+  it("CSS fallback keeps the @ prefix (uses raw ref, not the @-stripped normalized value)", () => {
+    // Distinguishes "returns ref" from "returns normalized": with a plain
+    // selector like "#submit-button" (no @/ref= prefix) the two are
+    // identical, so this case uses an @-prefixed, non-e\d+-shaped ref where
+    // they diverge. Confirmed against browser.ts:119-134 by direct read: the
+    // `normalized` value (stripped of "@") is only used for the e\d+ test;
+    // the css-fallback return statement uses the original `ref` parameter.
+    expect(resolveRefLocatorSpec("@.foo-selector", refs)).toEqual({
+      kind: "css",
+      selector: "@.foo-selector",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
