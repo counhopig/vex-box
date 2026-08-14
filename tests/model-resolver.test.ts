@@ -244,6 +244,26 @@ describe("ModelResolver", () => {
 			// User-supplied header must be present.
 			expect(m?.headers?.["X-Trace-Id"]).toBe("abc-123");
 		});
+
+		it("returns undefined for a case-mismatched model id instead of guessing the wrong protocol", () => {
+			// minimax's real preset models are anthropic-messages (registered as "MiniMax-M3").
+			// A case-mismatched id must NOT fall through to the openai-completions dynamic
+			// fallback — that would silently point the LLM call at the wrong API shape.
+			resolver.init({ providers: { minimax: chinaProvider() } });
+			expect(resolver.resolveModel("minimax", "minimax-m3")).toBeUndefined();
+		});
+
+		it("returns undefined for a wholly unknown model id on a provider with registered presets", () => {
+			resolver.init({ providers: { deepseek: chinaProvider() } });
+			expect(resolver.resolveModel("deepseek", "deepseek-chat-v99-does-not-exist")).toBeUndefined();
+		});
+
+		it("still resolves the correctly-cased registered id (fix does not break the happy path)", () => {
+			resolver.init({ providers: { minimax: chinaProvider() } });
+			const m = resolver.resolveModel("minimax", "MiniMax-M3");
+			expect(m).toBeDefined();
+			expect(m?.api).toBe("anthropic-messages");
+		});
 	});
 
 	// -----------------------------------------------------------------------

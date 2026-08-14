@@ -324,6 +324,22 @@ export class ModelResolver {
 			logger.warn({ providerId, modelId }, "Model not declared in custom provider config");
 			return undefined;
 		}
+		// A provider that already has at least one preset model registered locally
+		// (e.g. a China provider like deepseek/minimax) has a known, fixed model
+		// list and a known API protocol. Synthesizing an openai-completions
+		// fallback for an id that doesn't match one of those presets — including
+		// a case-mismatched id — would silently guess a protocol that may be
+		// wrong (e.g. minimax is anthropic-messages). Fail clearly instead.
+		const hasRegisteredPresets = Array.from(this.registry.keys()).some((k) =>
+			k.startsWith(`${providerId}:`),
+		);
+		if (hasRegisteredPresets) {
+			logger.warn(
+				{ providerId, modelId },
+				"Model id not found among this provider's registered presets (check spelling/case)",
+			);
+			return undefined;
+		}
 		const config = this.providerConfigs[providerId];
 		if (config) {
 			const preset = PRESET_PROVIDER_CONFIGS[providerId];
