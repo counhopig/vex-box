@@ -35,7 +35,7 @@ Vex (`vex-bot`) — lightweight AI chatbot framework for the Chinese LLM/communi
 │   ├── utils/           # logger.ts (pino, lazy child-logger proxy — see CONVENTIONS), path.ts (expandHomePath/isPathInside)
 │   ├── vendor/          # Vendored deps (e.g. qrcodegen.ts, no third-party call)
 │   └── web/             # WebServer bootstrap, routes/ (auth, config, sessions, admin, weixin-login, log-stream), static/ (inline SPA templates)
-├── tests/               # Vitest, flat directory, 59 files, `<module>.test.ts` naming
+├── tests/               # Vitest, flat directory, 66 files, `<module>.test.ts` naming
 └── .github/workflows/   # CI: npm publish on release
 ```
 
@@ -49,7 +49,7 @@ Vex (`vex-bot`) — lightweight AI chatbot framework for the Chinese LLM/communi
 | Add a new channel | `src/channels/` | Implement `ChannelAdapter` (`src/channels/ChannelAdapter.ts`); register via `ChannelRegistry` |
 | Add a new tool | `src/tools/builtin/` | Export a `createXTool(...)`, then **wire it into `src/tools/builtin/index.ts`'s `createBuiltinTools()`** — this exact gap (tool built but never called from the assembler) was the single most common defect class found in this codebase |
 | Config schema | `src/config/EffectiveConfig.ts` (resolved per-user shape) + `src/web/routes/config.ts` (`SystemConfig`, the raw/system-level shape the control panel edits) | **Two separate config types/pipelines** — don't conflate them. `ConfigStore.resolve(userId, channelId)` produces `EffectiveConfig`; `cli/config.ts`'s `loadConfig()` produces `SystemConfig` |
-| Model providers | `src/providers/ModelResolver.ts` | Class-based: `init/resolveModel/getApiKeyForProvider/isProviderAvailable/getAllRegisteredModels`. Case-sensitive model-id matching — a mismatched-case id on a provider with registered local presets (e.g. a China provider) returns `undefined` instead of guessing the wrong API protocol; providers with no fixed preset list (openrouter/together/groq/ollama/vllm) still synthesize a dynamic fallback model, as intended |
+| Model providers | `src/providers/ModelResolver.ts` | Class-based: `init/resolveModel/getApiKeyForProvider/isProviderAvailable/getAllRegisteredModels`. Case-sensitive model-id matching — a mismatched-case (or otherwise undeclared) id on a provider with a real fixed preset table (custom-openai/custom-anthropic strictly, China providers like deepseek/minimax via their local model list) returns `undefined` instead of guessing the wrong API protocol; providers with no fixed preset list (openrouter/together/groq/ollama/vllm) still synthesize a dynamic fallback model for every id, every time — tracked via a dedicated `presetProviders` Set, not registry key presence, so the dynamic-fallback path's own registry-caching can't poison the guard. Known trade-off: a China provider ships a new model id before it's added to `CHINA_PROVIDER_MODELS`, there's no config-level escape hatch (`registerChinaProvider` doesn't read `config.models`) — the workaround is reconfiguring that provider as `custom-openai` |
 | System prompt assembly | `src/agent/SystemPromptAssembler.ts` | 3-section assembler (persona/customInstructions/skills); `Agent.ts`'s `processMessage` is the only call site — check it directly to see which sections are actually populated |
 | Plugin API | `src/plugins/index.ts`, `src/plugins/service.ts` | `definePlugin`/`defineToolPlugin`, `PluginService` (per-(user,channel) instance, constructed in `buildAgentFactory`) |
 | Skills injection | `src/skills/SkillInjector.ts` (`buildPrompt`) + `src/agent/Agent.ts` (`skillsPrompt` field) | Bootstrap loads skills once per Agent build and pre-assembles the prompt string — the Agent never imports the skills module directly |
@@ -119,7 +119,7 @@ Vex (`vex-bot`) — lightweight AI chatbot framework for the Chinese LLM/communi
 
 ## TEST INFRASTRUCTURE
 
-- **Framework**: Vitest, flat `tests/` directory (59 files as of this writing), NOT colocated with source
+- **Framework**: Vitest, flat `tests/` directory (66 files as of this writing), NOT colocated with source
 - **Naming**: `<module>.test.ts`, e.g. `agent-runtime.test.ts`, `cli-server.test.ts`, `webchat-channel.test.ts`
 - **Real integration over mocking where feasible**: the strongest tests in this codebase write real fixture files to temp dirs and exercise real code paths (e.g. `plugins-service.test.ts` writes and dynamically imports real CJS plugin modules; `webchat-channel.test.ts` opens real WebSocket connections over a real HTTP server) rather than asserting against mocked call shapes. When a heavy dependency genuinely needs mocking (ConfigStore, AgentRegistry in `web-server.test.ts`), the surrounding real components (WebAuthStore, FileSessionStore, ChannelRegistry) stay real.
 - **Fixtures**: temp dirs under `os.tmpdir()`, created in `beforeEach`/cleaned in `afterEach`

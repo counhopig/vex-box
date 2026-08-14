@@ -10,7 +10,7 @@
  * cached. See plans/015-browser-tool-tests.md.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 
 // ---------------------------------------------------------------------------
 // browserLaunchArgs

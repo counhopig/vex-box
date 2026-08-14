@@ -287,6 +287,37 @@ describe("ModelResolver", () => {
 			});
 		}
 
+		it("resolves a second, different model id for the same preset-only provider in the same init (regression: dynamic-fallback cache must not poison the preset guard)", () => {
+			// Regression for the 018 fix: the dynamic fallback path caches its
+			// synthesized model into the same registry Map that
+			// registerChinaProvider() uses for real presets. A guard that infers
+			// "this provider has registered presets" from registry key presence
+			// would see the first resolved id's cache entry and wrongly refuse
+			// to synthesize a second, unrelated model id — even though ollama/
+			// together/etc. never have a fixed preset table to begin with.
+			resolver.init({ providers: { ollama: { baseUrl: "http://localhost:11434/v1" } } });
+
+			const first = resolver.resolveModel("ollama", "llama3");
+			expect(first).toBeDefined();
+			expect(first?.api).toBe("openai-completions");
+
+			const second = resolver.resolveModel("ollama", "qwen2");
+			expect(second).toBeDefined();
+			expect(second?.api).toBe("openai-completions");
+			expect(second?.id).toBe("qwen2");
+		});
+
+		it("resolves a second, different model id for 'together' in the same init (same regression, second preset-only provider)", () => {
+			resolver.init({ providers: { together: { apiKey: "sk-test" } } });
+
+			const first = resolver.resolveModel("together", "meta-llama/Llama-3-70b");
+			expect(first).toBeDefined();
+
+			const second = resolver.resolveModel("together", "Qwen/Qwen2-72B");
+			expect(second).toBeDefined();
+			expect(second?.id).toBe("Qwen/Qwen2-72B");
+		});
+
 		it("returns undefined for a provider with no apiKey and no preset baseUrl", () => {
 			// "nope" is not in CHINA_PROVIDER_BASE_URLS, PRESET_PROVIDER_CONFIGS,
 			// or PI_AI_KNOWN_PROVIDERS — the resolver must not crash.

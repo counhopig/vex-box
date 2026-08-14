@@ -224,11 +224,20 @@ function buildAnthropicModel(
 export class ModelResolver {
 	private readonly registry = new Map<string, ResolvedModel>();
 	private providerConfigs: Record<string, ProviderConfig> = {};
+	/** ProviderIds that were registered with a real, fixed preset model list
+	 *  at init time (China providers, custom-openai, custom-anthropic).
+	 *  Tracked separately from `registry` because the dynamic-fallback path
+	 *  (step 3 below) also writes into `registry` to cache synthesized
+	 *  models — so registry key presence alone can't distinguish "this
+	 *  provider has a real preset table" from "this provider previously
+	 *  resolved some other model id via dynamic fallback". */
+	private readonly presetProviders = new Set<string>();
 
 	/** Initialize (or re-initialize) the resolver from a config snapshot.
 	 *  Drops every previously registered model first, so re-init is safe. */
 	init(config: ModelResolverInit): void {
 		this.registry.clear();
+		this.presetProviders.clear();
 		this.providerConfigs = (config.providers ?? {}) as Record<string, ProviderConfig>;
 
 		for (const [id, providerConfig] of Object.entries(this.providerConfigs)) {
@@ -259,6 +268,7 @@ export class ModelResolver {
 	/** Drop all state. The resolver is then equivalent to a fresh instance. */
 	reset(): void {
 		this.registry.clear();
+		this.presetProviders.clear();
 		this.providerConfigs = {};
 	}
 
@@ -315,25 +325,29 @@ export class ModelResolver {
 		// provider with a baseUrl + config entry. Preserves the archive's
 		// 128000/8192 defaults for unknown-model-id fallbacks.
 		//
-		// Skips custom-openai / custom-anthropic: those providers are strict —
-		// the admin declares exactly which models exist, and synthesizing a
-		// Model for an undeclared id would point the LLM call at a model the
-		// proxy doesn't actually serve. China/preset providers keep the lenient
-		// fallback because their preset tables don't cover every model id.
+		// custom-openai / custom-anthropic are strict: the admin declares exactly
+		// which models exist, and synthesizing a Model for an undeclared id would
+		// point the LLM call at a model the proxy doesn't actually serve.
 		if (providerId === "custom-openai" || providerId === "custom-anthropic") {
 			logger.warn({ providerId, modelId }, "Model not declared in custom provider config");
 			return undefined;
 		}
-		// A provider that already has at least one preset model registered locally
-		// (e.g. a China provider like deepseek/minimax) has a known, fixed model
-		// list and a known API protocol. Synthesizing an openai-completions
-		// fallback for an id that doesn't match one of those presets — including
-		// a case-mismatched id — would silently guess a protocol that may be
-		// wrong (e.g. minimax is anthropic-messages). Fail clearly instead.
-		const hasRegisteredPresets = Array.from(this.registry.keys()).some((k) =>
-			k.startsWith(`${providerId}:`),
-		);
-		if (hasRegisteredPresets) {
+		// A provider with a real, fixed preset model list (currently: the China
+		// providers registered via registerChinaProvider) also has a known API
+		// protocol. Synthesizing an openai-completions fallback for an id that
+		// doesn't match one of those presets — including a case-mismatched id —
+		// would silently guess a protocol that may be wrong (e.g. minimax is
+		// anthropic-messages). Fail clearly instead of guessing.
+		//
+		// This must check presetProviders, not registry key presence: the
+		// dynamic-fallback path below also writes its synthesized models into
+		// `registry` to cache them, so a provider with no preset table at all
+		// (openrouter/together/groq/ollama/vllm) would otherwise pick up a
+		// registry entry after its *first* successful dynamic resolution and
+		// then wrongly get this strict treatment on the *next*, different model
+		// id. Those providers have no fixed model list — they keep the lenient
+		// dynamic fallback below for every model id, every time.
+		if (this.presetProviders.has(providerId)) {
 			logger.warn(
 				{ providerId, modelId },
 				"Model id not found among this provider's registered presets (check spelling/case)",
@@ -404,6 +418,7 @@ export class ModelResolver {
 				: buildOpenAIModel(modelDef.id, modelDef, baseUrl, providerId, config.headers);
 			this.registry.set(`${providerId}:${modelDef.id}`, { model, providerId });
 		}
+		this.presetProviders.add(providerId);
 
 		logger.debug({ providerId, modelCount: models.length }, "China provider registered");
 	}
@@ -427,6 +442,7 @@ export class ModelResolver {
 			const model = buildOpenAIModel(m.id, modelDef, baseUrl, "custom-openai", config.headers);
 			this.registry.set(`custom-openai:${m.id}`, { model, providerId: "custom-openai" });
 		}
+		this.presetProviders.add("custom-openai");
 	}
 
 	private registerCustomAnthropic(config: ProviderConfig): void {
@@ -448,5 +464,6 @@ export class ModelResolver {
 			const model = buildAnthropicModel(m.id, modelDef, baseUrl, "custom-anthropic", config.apiVersion, config.headers);
 			this.registry.set(`custom-anthropic:${m.id}`, { model, providerId: "custom-anthropic" });
 		}
+		this.presetProviders.add("custom-anthropic");
 	}
 }
