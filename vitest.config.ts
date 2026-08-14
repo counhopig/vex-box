@@ -8,9 +8,15 @@ export default defineConfig({
     isolate: true,
     coverage: {
       provider: "v8",
-      reporter: ["text", "html"],
+      reporter: ["text", "html", "json-summary"],
       include: ["src/**/*.ts"],
       exclude: ["src/cli/**", "src/web/**"],
+      thresholds: {
+        statements: 68,
+        branches: 76,
+        functions: 76,
+        lines: 68,
+      },
     },
   },
 });
